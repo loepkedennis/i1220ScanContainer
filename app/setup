@@ -1,0 +1,315 @@
+#!/bin/bash
+#
+# Eastman Kodak Company
+# Document Imaging Scanner Driver Install Script
+#
+
+# This function prompts the user to press enter and waits until they do
+# before exiting. The only argument is the optional error code for exit
+exit_and_pause()
+{
+
+
+	exit $1
+}
+
+# This function prompts the user to tell them the TWAIN GUI will be disabled
+print_gui_disabled()
+{
+	# Let the use know the GUI will be disabled
+	echo "The TWAIN UI requires mono and mono-winforms version 2.0 or higher."
+	echo ""
+	echo "You can continue to install the KODAK scanner software, but the TWAIN UI"
+	echo "will not be available. Otherwise you need to: 1) exit this installer; "
+   	echo "2) install mono and mono-winforms 2.0 or greater; and 3) run this"
+   	echo "installer again".
+   	echo ""
+   	echo "If you continue with this install and then later want to use the TWAIN"
+   	echo "UI, you will need to run this installer again."
+   	echo ""	
+	echo "Press \"Enter\" to continue and not have the TWAIN UI available..."
+
+}
+
+
+################################################################################
+# Installer Main Body
+################################################################################
+
+# We need to find out:
+#  1) If we're running as root
+#  2) If we're running on a Debian based distribution
+
+# 1) If we're running as root
+runasroot=0
+if [ `whoami` == "root" ]; then
+	runasroot=1
+fi
+
+# 1) If we're running on a Debian based distribution
+#	 We're going to try and make this simple by looking for "apt-get", we'll 
+#	 assume that we are not a Debian based distribution if it's not there. This
+#	 is far from foolproof, but should be "good enough"
+dpkgpath=`which dpkg 2>> /dev/null` 
+aptgetpath=`which apt-get 2>> /dev/null`
+needalien=0
+if [ "$dpkgpath" != "" ]; then
+	needalien=1
+fi
+alienpath=`which alien 2>> /dev/null`
+
+
+#
+# Installer Main Body
+#
+# Splash Message
+echo
+echo
+echo "KODAK Scanner Installation"
+echo 
+echo "This script will install ALL of the software in this package."
+echo "KODAK scanner software use OpenUSB and the TWAIN Data Source Manager (DSM)."
+echo "OpenUSB and the TWAIN DSM are distributed with this package and will be"
+echo "installed if necessary."
+echo
+echo "OpenUSB source code can be downloaded from"
+echo "     http://openusb.wiki.sourceforge.net"
+echo "TWAIN DSM source code can be downloaded from"
+echo "     http://sourceforge.net/projects/twain-dsm"
+echo
+
+
+
+# Make sure we're root
+if [ $runasroot == 0 ]; then
+	echo "You must be root to install software!"
+	exit_and_pause 1
+fi
+
+alienInstalled=0
+if [ $needalien == 1 ]; then
+	echo "Your distribution appears to use the Debian package manager"
+	echo "The RPM packages included on this CD will be converted using alien"
+	echo ""
+	if [ "$alienpath" == "" ]; then
+		echo "Alien does not appear to be installed."
+
+					$aptgetpath install -y alien
+					if [ $? ]; then
+						alienInstalled=1
+					fi
+
+		if [ $alienInstalled == 0 ]; then		
+			echo "Use apt-get install alien to to install this package."
+			echo
+			echo "Installation Failed!"
+			exit_and_pause 1
+		fi
+	fi
+fi
+
+# Check for mono (we need version 2.0 or higher with mono-winforms 2.0). The 
+# rpm scripts contain almost exactly this same code and will endable the GUI if 
+# the version we need is found. This is here just to let the user know whether
+# or not the GUI will be enabled. If the GUI is not in rpm package, don't bother,
+# we know we have rpm installed at this point even on Ubuntu because we've already
+# checked for alien, which requires rpm.
+isguiinrpm=`rpm -qlp *.rpm | grep twaingui 2>> /dev/null`
+if [ -n "$isguiinrpm" ]; then
+	echo "Searching for mono and mono-winforms 2.0. Please wait..."
+	monojit=`which mono 2>> /dev/null`
+	if [ -n "$monojit" ]; then
+		monowinforms2=`find /usr/lib -name System.Windows.Forms.dll -print | grep '2\.[0-0]' 2>> /dev/null`
+		monover=`$monojit -V | grep 'version [2-9]\.[0-9]' 2>> /dev/null`
+		if [ -z "$monover" ]; then
+			print_gui_disabled
+		else
+			if [ -z "$monowinforms2" ]; then
+				print_gui_disabled
+			else
+				echo "mono and mono-winforms 2.0 or greater Detected!"
+				echo
+			fi
+		fi
+	else
+		print_gui_disabled
+	fi
+fi
+
+# We need to make sure the /usr/local/lib is in the ld.so.conf
+if ! grep "/usr/local/lib" /etc/ld.so.conf > /dev/null; then
+	echo "/usr/local/lib" >> /etc/ld.so.conf
+fi
+
+
+# Determine if OpenUSB is already installed and if it's version 1.0.2 or higher
+# If it is installed, but it's not version 1.0.2 or higher remove it before
+# installing
+installOpenusb=0
+removeOpenusb=0
+echo "Checking OpenUSB version. Please wait..."
+openusbFound=`find /usr -name libopenusb.so -print`
+if [ -z "$openusbFound" ]; then
+	installOpenusb=1
+else
+	openusbFound=`find /usr -name 'libopenusb.so\.[0-9]\.[0-9]\.[2-9]' -print`
+	if [ -z "$openusbFound" ]; then
+		echo "A previous version of OpenUSB was found. It will be removed"
+		echo "and replaced with the version contained in this package."
+		removeOpenusb=1
+		installOpenusb=1
+	fi
+fi
+
+
+# Determine if the TWAIN DSM is already installed and if it's version 2.0.3 or
+# higher. If it is installed, but it's not version 2.0.3 or higher remove it
+# before installing
+installTwainDsm=0
+removeTwainDsm=0
+echo "Checking the TWAIN DSM version. Please wait..."
+twainDsmFound=`find /usr -name libtwaindsm.so -print`
+if [ -z "$twainDsmFound" ]; then
+	installTwainDsm=1
+else
+	twainDsmFound=`find /usr -name 'libtwaindsm.so\.[2-9]\.[0-9]\.[3-9]' -print`
+	if [ -z "$twainDsmFound" ]; then
+		echo "A previous version of the TWAIN DSM was found. It will be removed"
+		echo "and replaced with the version contained in this package."
+		removeTwainDsm=1
+		installTwainDsm=1
+	fi
+fi
+
+
+# The version of OpenUSB distributed with this packaged was built against
+# libdbus-1.so.2, so if we're installing OpenUSB then we need to create
+# a symbolic link from libdbus-1.so.3 to libdbus-1.so.2. This is kinda
+# sleezy, so hopefully people have installed OpenUSB from their distro
+# or have built it themselves for this system.
+if [ $installOpenusb == 1 ]; then
+	if [ -f /usr/lib/libdbus-1.so.3 ]; then
+		ln -s /usr/lib/libdbus-1.so.3 /usr/lib/libdbus-1.so.2 2>> /dev/null
+	fi
+	if [ -f /lib/libdbus-1.so.3 ]; then
+		ln -s /lib/libdbus-1.so.3 /lib/libdbus-1.so.2 2>> /dev/null
+	fi
+fi
+
+
+# Figure out the temporary directory and copy all the packages there
+echo "Copying Packages to a temporary directory..."
+if [ "$TMPDIR" == "" ]; then
+	echo "TMPDIR is not defined, using /tmp"
+	echo
+	TMPDIR=/tmp
+fi
+instdir=$TMPDIR/kds_inst
+mkdir -p $instdir
+cp *.rpm $instdir
+cp *.deb $instdir
+currentdir=`pwd`
+cd $instdir
+
+# If we're on a Debian based system...
+if [ $needalien == 1 ]; then
+
+	# Create the temporary directory and copy the RPM packages
+	echo "Converting Packages using alien..."
+
+	# Delete the twaindsm*.rpm as we have a .deb for that
+	rm -f twaindsm*.rpm
+	
+	# Convert the remaining RPM packages
+	alien --scripts --to-deb *.rpm 2>> /dev/null
+	
+	# If we need to remove OpenUSB do it now
+	if [ $removeOpenusb == 1 ]; then
+		echo "Removing the previous version of OpenUSB..."
+		$dpkgpath --force-all --purge openusb libopenusb0
+	fi
+	# If we need to remove the TWAIN DSM do it now
+	if [ $removeTwainDsm == 1 ]; then
+		echo "Removing the previous version of the TWAIN DSM..."
+		$dpkgpath --force-all --purge twaindsm
+	fi
+
+	# Install OpenUSB, if necessary
+	if [ $installOpenusb == 1 ]; then
+
+			echo -n "Would you like to install OpenUSB using APT? (y/n): "
+
+					$aptgetpath install libopenusb0
+					if [ $? ]; then
+						installOpenusb=0
+						rm libopenusb*.deb
+					fi
+					echo
+					echo
+			
+				
+		
+
+		if [ $installOpenusb == 1 ]; then
+			echo "Installing the included OpenUSB..."
+			$dpkgpath -i libopenusb*.deb
+			rm libopenusb*.deb
+		fi
+	else
+	  rm libopenusb*.deb
+	fi
+
+	#Install the TWAIN DSM, if necessary
+	if [ $installTwainDsm == 1 ]; then
+		echo "Installing the TWAIN DSM..."
+		$dpkgpath -i twaindsm*.deb
+		rm twaindsm*.deb
+	else
+	  rm twaindsm*.deb
+	fi
+
+	# Install the remaining DEB packages
+	echo "Installing Packages..."
+	$dpkgpath -i *.deb
+
+else
+
+	# If we need to remove OpenUSB do it now
+	if [ $removeOpenusb == 1 ]; then
+		echo "Removing the previous version of OpenUSB..."
+		rpm -e --nodeps openusb
+		rpm -e --nodeps libopenusb 
+	fi
+	# If we need to remove the TWAIN DSM do it now
+	if [ $removeTwainDsm == 1 ]; then
+		echo "Removing the previous version of the TWAIN DSM..."
+		rpm -e --nodeps twaindsm
+	fi
+
+	# Install OpenUSB, if necessary
+	if [ $installOpenusb == 1 ]; then
+		echo "Installing OpenUSB..."
+		rpm -Uvh --replacepkgs --nodeps libopenusb*.rpm
+		rm libopenusb*.rpm
+	else
+	  rm libopenusb*.rpm
+	fi
+	#Install the TWAIN DSM, if necessary
+	if [ $installTwainDsm == 1 ]; then
+		echo "Installing the TWAIN DSM..."
+		rpm -Uvh --replacepkgs twaindsm*.rpm
+		rm twaindsm*.rpm
+	else
+	  rm twaindsm*.rpm
+	fi
+
+	echo "Installing Packages..."
+	rpm -Uvh --replacepkgs *.rpm
+
+fi
+
+# Remove the temporary directory
+cd "$currentdir"
+rm -rf $instdir
+
+exit_and_pause 0
